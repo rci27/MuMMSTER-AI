@@ -25,11 +25,11 @@ ERA_CONTEMPORARY_START = 2014
 YEAR_CANDIDATES  = ["year", "Year", "season", "Season", "yr", "Yr"]
 BAND_CANDIDATES  = [
     "band", "Band", "band_name", "Band Name", "String Band",
-    "string_band", "name", "Name",
+    "string_band", "name", "Name", "club", "organization"
 ]
 PLACE_CANDIDATES = [
     "placement", "Placement", "place", "Place",
-    "rank", "Rank", "finish", "Finish", "Position", "position",
+    "rank", "Rank", "finish", "Finish", "Position", "position", "prize"
 ]
 TOTAL_CANDIDATES = [
     "total", "Total", "total_points", "Total Points",

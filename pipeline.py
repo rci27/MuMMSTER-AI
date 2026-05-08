@@ -76,6 +76,82 @@ _MARCHING_SYNTHESIS_EXTRA = (
     "stronger result than the same placement from a late slot."
 )
 
+# Signals that a question is about a person's history, tenure, or profile.
+_PERSON_TENURE_RE = re.compile(
+    r'\b(captain|tenure|how\s+long\s+(was|did|has|have)|served\s+(as|with)|led\s+the|'
+    r'tell\s+me\s+about|profile|career|legacy|contribution|'
+    r'years?\s+as\s+(captain|leader|director)|'
+    r'inducted|hall\s+of\s+fame|lifetime\s+achievement|achievement\s+award|'
+    r'officer\s+of\s+the\s+year|award\s+of\s+distinction|presidents?\s+award|'
+    r'when\s+did\s+\w+\s+(serve|captain|lead|win|join)|'
+    r'what\s+did\s+\w+\s+(win|accomplish|achieve|do))\b',
+    re.IGNORECASE,
+)
+
+_PERSON_TENURE_DECOMPOSE_EXTRA = (
+    "\n\nIMPORTANT — This question is about a person's history, tenure, or contribution. "
+    "The decomposition MUST include ALL of the following sub-questions:\n"
+    "1. Find the person in sbdb_captains using LIKE matching — retrieve every year they "
+    "appear and which band(s) they were associated with.\n"
+    "2. Find that band's placement in sbdb_main_results for each of those years "
+    "(JOIN on Year + band name).\n"
+    "3. Find the band's historical average placement across ALL years for comparison context.\n"
+    "4. Check sbdb_hall_of_fame, sbdb_lifetime_achievement, sbdb_presidents_award, "
+    "sbdb_award_of_distinction, sbdb_officer_of_the_year — search for the person's name "
+    "in each using LIKE.\n"
+    "5. Check sbdb_concepts for the band's themes in those years if available.\n"
+    "Do NOT answer with just a count of years. Build the full picture of this person's "
+    "contribution to Mummers history."
+)
+
+_PERSON_TENURE_SYNTHESIS_EXTRA = (
+    "\n\nIMPORTANT — This question is about a person's history in the Mummers community. "
+    "Write the response as a tribute that honors their contribution to string band history. "
+    "Lead with their most significant achievement. If they were a captain, narrate the tenure "
+    "year by year — cite specific placements, themes, and how those results compare to the "
+    "band's historical average. If they received awards, weave those into the narrative. "
+    "Connect results to context: a first-prize win during their tenure is a career highlight "
+    "worth calling out explicitly. End with a 'Bottom Line' sentence that a Mummers fan "
+    "would remember. Tone: knowledgeable, warm, specific — like a historian who knew them."
+)
+
+
+# ── Prize ambiguity detection ─────────────────────────────────────────────────
+
+# "prize money" context — clearly the dollar-amount meaning.
+_PRIZE_MONEY_RE = re.compile(
+    r'\b(prize\s+money|how\s+much\s+(prize|money)|dollar(s)?|cash|monetary|'
+    r'most\s+prize\s+money|total\s+prize|prize\s+amount|payout|purse)\b',
+    re.IGNORECASE,
+)
+
+# Finishing-position context — ordinal directly before "prize" or "place".
+_PRIZE_POSITION_RE = re.compile(
+    r'\b(first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|'
+    r'sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th)\s+prize\b|'
+    r'\b(finish(ed)?|place(d)?|came\s+in)\s+(first|second|third|in\s+(first|second|third))\b',
+    re.IGNORECASE,
+)
+
+_PRIZE_CLARIFY_MSG = (
+    'When you say "prize," do you mean **finishing position** '
+    "(1st place, 2nd place, etc.) or **prize money** (the dollar amount awarded to the band)?\n\n"
+    "Note: prize money was only awarded through **2008** — after that, no monetary prizes "
+    "were given. If you're asking about competitive finishes or wins, those records cover "
+    "the full range from 1901 to the present."
+)
+
+
+def _prize_is_ambiguous(question: str) -> bool:
+    """Return True if 'prize' appears but context doesn't resolve placement vs. money."""
+    if "prize" not in question.lower():
+        return False
+    if _PRIZE_MONEY_RE.search(question):
+        return False
+    if _PRIZE_POSITION_RE.search(question):
+        return False
+    return True
+
 
 def _needs_deep_analysis(question: str) -> bool:
     return len(question) > 40 and bool(_DEEP_ANALYSIS_RE.search(question))
@@ -83,6 +159,10 @@ def _needs_deep_analysis(question: str) -> bool:
 
 def _involves_marching_order(question: str) -> bool:
     return bool(_MARCHING_ORDER_RE.search(question))
+
+
+def _involves_person_tenure(question: str) -> bool:
+    return bool(_PERSON_TENURE_RE.search(question))
 
 
 def _load_api_key() -> str:
@@ -133,28 +213,32 @@ def _interp_messages(history: list[dict], question: str, sql: str,
         " Reference relevant findings from the conversation history if this is a follow-up question."
         if history else ""
     )
-    shown = preview[:30]
-    truncation_note = (
-        f" The table above shows the top 30 results. "
-        f"The full dataset of **{row_count} rows** was used for all calculations — "
-        f"no data is missing. Do NOT warn about missing years or data gaps due to display truncation."
-        if row_count > 30 else ""
+    _INTERP_ROW_LIMIT = 200
+    shown = preview[:_INTERP_ROW_LIMIT]
+    count_note = (
+        f" Showing summary of {row_count} total records."
+        if row_count > _INTERP_ROW_LIMIT else ""
     )
     msgs.append({
         "role": "user",
         "content": (
-            "You are a data analyst for the MummSTER database of Philadelphia Mummers Parade "
-            "string band competition history.\n\n"
+            "You are a Mummers historian with encyclopedic knowledge of Philadelphia string band "
+            "competition history. Answer with the depth and narrative quality of a knowledgeable "
+            "expert — not a cautious database query tool.\n\n"
             f"Question: {question}\n"
             f"SQL used: {sql}\n"
-            f"Results ({row_count} rows, showing up to 30): "
-            f"{json.dumps({'sample': shown, 'total_rows': row_count})}\n\n"
-            "Write a plain English interpretation (3–5 sentences). "
-            "Use markdown formatting — **bold** for key findings, bullet lists for multiple points. "
-            "Be specific about what the data shows. "
-            "Note era boundaries or data gaps only if they reflect real absences in the underlying data, "
-            "not display truncation."
-            + truncation_note
+            f"Results ({row_count} rows): "
+            f"{json.dumps({'rows': shown, 'total_rows': row_count})}\n\n"
+            "ALWAYS go deep on the first answer — never give a minimal response and suggest a "
+            "follow-up instead of answering. If the data is here, use it.\n\n"
+            "For questions about a person's tenure or captaincy, proactively include: "
+            "the specific years, the band's placement each year, any themes performed, "
+            "scores achieved, how those results compare to the band's historical average, "
+            "and what happened after the tenure ended. Do not wait to be asked for this detail.\n\n"
+            "Use markdown: **bold** for key years and numbers, bullet lists or tables for "
+            "multi-year data. Write with genuine enthusiasm for Mummers history. "
+            "Note era context only when it adds real understanding."
+            + count_note
             + follow_up_note
         ),
     })
@@ -252,33 +336,40 @@ async def _synthesize_results(
         else:
             block.append(f"**{r['row_count']} rows returned**")
             if r["rows"]:
-                block.append(json.dumps(r["rows"][:30], indent=2))
+                block.append(json.dumps(r["rows"][:200], indent=2))
         data_blocks.append("\n".join(block))
 
     resp = await client.messages.create(
         model=MODEL,
-        max_tokens=3000,
+        max_tokens=4000,
         messages=[{
             "role": "user",
             "content": (
-                "You are a research analyst for the MummSTER database of Philadelphia Mummers Parade "
-                "string band competition history. You have run multiple SQL queries to answer a "
-                "complex question. Synthesize all results into a structured analytical response.\n\n"
+                "You are a Mummers historian with access to a complete database of Philadelphia "
+                "string band competition history spanning over 100 years. You have run multiple "
+                "SQL queries to fully answer a complex question.\n\n"
+                "Answer with the depth and narrative quality of a knowledgeable expert — not a "
+                "cautious database query tool. When someone asks how long Ron was captain, they "
+                "want to know everything about that era: the years, the placements, the themes, "
+                "the scores, how it compared to history, and what came after. Provide all of "
+                "this proactively.\n\n"
                 f"**Original question:** {question}\n\n"
                 "**Query results:**\n\n" + "\n\n".join(data_blocks) + "\n\n"
-                "Write your response as a research analyst would. Structure it with these markdown sections:\n\n"
+                "Structure your response with these markdown sections:\n\n"
                 "## Overall Verdict\n"
-                "Direct answer to the question in 1–2 sentences.\n\n"
-                "## Supporting Evidence\n"
-                "Specific numbers from the data. Use a table if comparing multiple bands or years.\n\n"
+                "Direct, complete answer to the question — not a teaser.\n\n"
+                "## The Full Picture\n"
+                "Year-by-year detail where relevant. Use a table for multi-year or multi-band data. "
+                "Cite specific placements, scores, and themes from the results.\n\n"
                 "## Competitive Context\n"
-                "How this compares to the field — field averages, percentile position, peer comparison.\n\n"
+                "How this compares to the field or to the band's own history — averages, "
+                "standout years, peer comparison.\n\n"
                 "## Notable Findings\n"
-                "Anything surprising, a standout year, an anomaly, or a trend worth highlighting.\n\n"
+                "Anything surprising, a career highlight, an anomaly, or a lasting record.\n\n"
                 "## Bottom Line\n"
-                "One plain-English sentence a Mummers fan without stats knowledge would understand.\n\n"
-                "Use **bold** for key numbers, bullet lists for multiple points, and tables for comparative data. "
-                "Note any data gaps or era-boundary caveats. Be specific — cite actual numbers from the results."
+                "One sentence that a Mummers fan would remember and repeat.\n\n"
+                "Use **bold** for key numbers and years. Be specific — every claim should be "
+                "traceable to the query results above."
                 + extra_context
             ),
         }],
@@ -299,9 +390,19 @@ async def run_query_pipeline(query_id: str, question: str) -> AsyncGenerator[str
             return
 
         client = anthropic.AsyncAnthropic(api_key=api_key)
+
+        # Ambiguity check — ask for clarification before generating SQL.
+        if _prize_is_ambiguous(question):
+            yield _sse("clarification_needed", {"message": _PRIZE_CLARIFY_MSG})
+            yield _sse("interpretation", {"text": _PRIZE_CLARIFY_MSG})
+            yield _sse("complete", {"query_id": query_id})
+            return
+
         system_prompt = get_system_prompt()
 
-        if _needs_deep_analysis(question) or _involves_marching_order(question):
+        if (_needs_deep_analysis(question)
+                or _involves_marching_order(question)
+                or _involves_person_tenure(question)):
             async for chunk in _run_multi_query_pipeline(query_id, question, client, system_prompt):
                 yield chunk
         else:
@@ -541,8 +642,17 @@ async def _run_multi_query_pipeline(
         # Step 1: Decompose question into sub-queries
         # ------------------------------------------------------------------
         marching_question = _involves_marching_order(question)
-        decompose_extra = _MARCHING_DECOMPOSE_EXTRA if marching_question else ""
-        synthesis_extra = _MARCHING_SYNTHESIS_EXTRA if marching_question else ""
+        person_tenure_question = _involves_person_tenure(question)
+        decompose_extra = (
+            _MARCHING_DECOMPOSE_EXTRA if marching_question
+            else _PERSON_TENURE_DECOMPOSE_EXTRA if person_tenure_question
+            else ""
+        )
+        synthesis_extra = (
+            _MARCHING_SYNTHESIS_EXTRA if marching_question
+            else _PERSON_TENURE_SYNTHESIS_EXTRA if person_tenure_question
+            else ""
+        )
 
         yield _sse("status", {"step": "decompose", "message": "Decomposing into sub-queries…"})
 
