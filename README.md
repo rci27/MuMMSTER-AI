@@ -6,6 +6,12 @@ A complete data platform for the Philadelphia Mummers String Band Parade — ove
 
 ---
 
+Acknowledgments
+The Philadelphia Mummers community — for keeping a century of records alive.
+TJ Ferry and Brian Hamburg — for stewarding the String Band Database Google Sheet that anchors the modern data.
+Anthropic — for the Claude API that powers the natural-language interface and the vision extraction.
+Simon Willison — for Datasette, which made the data viewer trivial to stand up.
+
 ## What This Is
 
 The Philadelphia Mummers Parade is one of the oldest folk parades in the United States, with the String Band division competing every January 1st since 1901. Until now, the historical record has lived across scanned PDFs, paper point sheets, scattered spreadsheets, and the memories of band members.
