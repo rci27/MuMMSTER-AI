@@ -116,6 +116,30 @@ _PERSON_TENURE_SYNTHESIS_EXTRA = (
 )
 
 
+# ── Placement column detection (for Y-axis inversion on charts) ──────────────
+
+_PLACEMENT_COL_RE = re.compile(
+    r'\b(place(ment)?|finish(ing)?|rank(ing)?|position)\b',
+    re.IGNORECASE,
+)
+# Words that indicate a column is a count/score/money — NOT a finishing position.
+_NON_PLACEMENT_WORDS = frozenset({
+    'prize', 'win', 'wins', 'won', 'count', 'total', 'sum', 'award', 'money',
+    'score', 'points', 'music', 'visual', 'costume', 'effect',
+})
+
+
+def _is_placement_data(columns: list[str]) -> bool:
+    """Return True if any result column represents finishing position (lower = better)."""
+    for col in columns:
+        col_lower = col.lower().strip()
+        if any(w in col_lower for w in _NON_PLACEMENT_WORDS):
+            continue
+        if _PLACEMENT_COL_RE.search(col):
+            return True
+    return False
+
+
 # ── Prize ambiguity detection ─────────────────────────────────────────────────
 
 # "prize money" context — clearly the dollar-amount meaning.
@@ -222,9 +246,12 @@ def _interp_messages(history: list[dict], question: str, sql: str,
     msgs.append({
         "role": "user",
         "content": (
-            "You are a Mummers historian with encyclopedic knowledge of Philadelphia string band "
-            "competition history. Answer with the depth and narrative quality of a knowledgeable "
-            "expert — not a cautious database query tool.\n\n"
+            "You are MummSTER AI — the Mummers Ultimate Metrics Machine for Scoring, Trends, "
+            "Evaluation and Reporting Analytics Interface. You have encyclopedic knowledge of "
+            "Philadelphia string band competition history covering 1901 to 2026. "
+            "When appropriate, refer to yourself and your data as 'the MummSTER AI database' "
+            "— for example: 'The MummSTER AI database shows...' or "
+            "'Based on MummSTER AI records...'\n\n"
             f"Question: {question}\n"
             f"SQL used: {sql}\n"
             f"Results ({row_count} rows): "
@@ -345,14 +372,15 @@ async def _synthesize_results(
         messages=[{
             "role": "user",
             "content": (
-                "You are a Mummers historian with access to a complete database of Philadelphia "
-                "string band competition history spanning over 100 years. You have run multiple "
-                "SQL queries to fully answer a complex question.\n\n"
-                "Answer with the depth and narrative quality of a knowledgeable expert — not a "
-                "cautious database query tool. When someone asks how long Ron was captain, they "
-                "want to know everything about that era: the years, the placements, the themes, "
-                "the scores, how it compared to history, and what came after. Provide all of "
-                "this proactively.\n\n"
+                "You are MummSTER AI — the Mummers Ultimate Metrics Machine for Scoring, Trends, "
+                "Evaluation and Reporting Analytics Interface. You have access to a complete "
+                "database of Philadelphia string band competition history spanning 1901 to 2026. "
+                "You have run multiple SQL queries to fully answer a complex question.\n\n"
+                "Refer to your data source as 'the MummSTER AI database' where natural. "
+                "Answer with the depth of a knowledgeable expert. When someone asks how long "
+                "someone was captain, they want everything about that era: the years, the "
+                "placements, the themes, the scores, how it compared to history, and what came "
+                "after. Provide all of this proactively.\n\n"
                 f"**Original question:** {question}\n\n"
                 "**Query results:**\n\n" + "\n\n".join(data_blocks) + "\n\n"
                 "Structure your response with these markdown sections:\n\n"
@@ -558,6 +586,14 @@ async def _run_single_query_pipeline(
         chart_spec: dict | None = None
 
         if 0 < row_count <= 100:
+            placement_chart = _is_placement_data(columns)
+            placement_axis_note = (
+                "\nIMPORTANT — This data shows finishing positions where 1 = 1st place = best. "
+                "The Y axis MUST be inverted so 1st place appears at the TOP. "
+                'Include: "scales": {"y": {"reverse": true, "min": 1, '
+                '"title": {"display": true, "text": "Place (1st = Best)"}}}'
+            ) if placement_chart else ""
+
             chart_resp = await client.messages.create(
                 model=MODEL,
                 max_tokens=1500,
@@ -569,8 +605,12 @@ async def _run_single_query_pipeline(
                         f"Columns: {columns}\n"
                         f"Rows ({row_count}): {json.dumps(rows[:30])}\n\n"
                         "Should a Chart.js chart visualize this data? "
-                        'If yes, return ONLY a JSON object: {"type":"bar"|"line"|"pie","labels":[...],"datasets":[{"label":"...","data":[...]}],"title":"..."}\n'
+                        'If yes, return ONLY a JSON object: '
+                        '{"type":"bar"|"line"|"pie","labels":[...],'
+                        '"datasets":[{"label":"...","data":[...]}],'
+                        '"title":"...","scales":{"y":{...}}}\n'
                         "If no chart is appropriate, return exactly: null"
+                        + placement_axis_note
                     ),
                 }],
             )
@@ -578,6 +618,15 @@ async def _run_single_query_pipeline(
             if chart_text.lower() not in ("null", "none", ""):
                 try:
                     chart_spec = json.loads(chart_text)
+                    # Guarantee Y-axis inversion for placement data regardless of
+                    # whether the model included it in the spec.
+                    if placement_chart:
+                        chart_spec.setdefault("scales", {}).setdefault("y", {})
+                        chart_spec["scales"]["y"]["reverse"] = True
+                        chart_spec["scales"]["y"]["min"] = 1
+                        chart_spec["scales"]["y"].setdefault(
+                            "title", {"display": True, "text": "Place (1st = Best)"}
+                        )
                     yield _sse("chart", chart_spec)
                 except json.JSONDecodeError:
                     logger.warning("Chart spec was not valid JSON, skipping chart")

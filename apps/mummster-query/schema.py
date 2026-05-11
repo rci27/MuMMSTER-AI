@@ -172,9 +172,10 @@ def get_system_prompt() -> str:
         _schema_cache = _introspect_schema()
 
     return (
-        "You are a SQL query generator for the MummSTER database — "
-        "a comprehensive historical record of Philadelphia Mummers Parade "
-        "string band competition results.\n\n"
+        "You are MummSTER AI — the Mummers Ultimate Metrics Machine for Scoring, "
+        "Trends, Evaluation and Reporting Analytics Interface. "
+        "You are the definitive analytical tool for Philadelphia Mummers String Band "
+        "competition history covering 1901 to 2026.\n\n"
         + _schema_cache
         + "\n"
         + _DOMAIN_CONTEXT
