@@ -45,6 +45,7 @@ The core competition results table. ~1,960 rows.
 | Designer          | Costume/scenery designer                               |
 | Choreographer     | Lead choreographer                                     |
 | YouTube           | Video link, if known                                   |
+| participated      | BOOLEAN. `FALSE` means the band appeared on the lineup but withdrew before competing. `Place`, `Captain Place`, and score columns are `NULL` for these rows by design. Set automatically by the pipeline (`_apply_participated` in `import_sbdb.py`) wherever `Note = 'wd'`. |
 | ... subcategories | Costume, music, performance, etc., when available      |
 
 ### `sbdb_hall_of_fame`
@@ -113,15 +114,29 @@ Era is denormalized into the `parsed_scores.era` column so queries can filter wi
 
 ---
 
-## Gap Years
+## Gap Years and Parade Disruptions
 
-Years with no parade or no extractable data:
+Not all years are equal. There are three distinct situations a query needs to handle:
 
-- **2021** — parade cancelled (COVID-19). **MUST be excluded** from every multi-year query, with no exceptions.
-- **1964** — no point sheet available. Excluded from `parsed_scores` queries but `sbdb_main_results` has the placement record.
-- **1967** — same as 1964.
-- **1999** — same.
-- **2001** — same.
+### 1. Parade cancelled — no competition held
+
+- **2021** — parade cancelled (COVID-19). No bands marched, no competition was held, no scores exist. **MUST be excluded** from every multi-year query, with no exceptions. `sbdb_main_results` has no rows for 2021.
+
+### 2. Parade ran normally
+
+- **2022** — parade ran normally. Documented explicitly here so readers don't infer disruption from the absence of 2022 in the cancelled list.
+
+### 3. Parade ran, but specific bands withdrew before competing
+
+These bands appear in `sbdb_main_results` with `participated = FALSE` and `NULL` placement and scores. The parade happened; these bands did not march.
+
+- **2026** — Ferko and Avalon appeared on the official lineup but withdrew before the competition. Their rows exist in `sbdb_main_results` with `participated = FALSE`, `Place = NULL`, `Total Points = NULL`.
+
+The `participated` column is the correct filter for this case. `Place IS NOT NULL` and `Place NOT IN ('WD', ...)` are not reliable substitutes — they filter symptoms, not the root cause.
+
+### 4. No point sheet available (parsed_scores only)
+
+- **1964, 1967, 1999, 2001** — `sbdb_main_results` has the placement record for these years, but no usable point sheet was available so `parsed_scores` has no entries.
 
 The pattern: `sbdb_main_results` is the source of truth for placement and basic facts. `parsed_scores` has subcategory detail but only for years where a usable point sheet existed and the extractor succeeded.
 
@@ -131,12 +146,13 @@ The pattern: `sbdb_main_results` is the source of truth for placement and basic 
 SELECT ...
 FROM sbdb_main_results
 WHERE CAST(Year AS INTEGER) >= 1981
-  AND CAST(Year AS INTEGER) != 2021
-  AND Place NOT IN ('N', 'DQ', 'WD', 'BD')
-  AND Place IS NOT NULL
+  AND Year != '2021'
+  AND participated IS NOT FALSE
 ```
 
-For `parsed_scores` queries, additionally:
+`participated IS NOT FALSE` passes rows where `participated = TRUE` and also rows where the column is `NULL` (older rows that predate the column). For most aggregate queries (AVG, COUNT, SUM), `NULL` placement values are ignored automatically — but filtering on `participated` is still the right practice for clarity and forward-compatibility.
+
+For `parsed_scores` queries, additionally exclude the point-sheet gap years:
 
 ```sql
   AND year NOT IN (1964, 1967, 1999, 2001, 2021)

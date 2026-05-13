@@ -131,6 +131,20 @@ User question
     │
     ▼
 ┌─────────────────────────────────────────────────────────────┐
+│ [3a] Verified statistics                                    │
+│     After execution, Python computes aggregate statistics    │
+│     (averages, counts, min/max, ranges) directly from the    │
+│     result DataFrame. These are passed to the interpretation │
+│     model as ground-truth facts.                             │
+│                                                              │
+│     The model cites these values; it does not recompute      │
+│     or estimate them. This eliminates a class of hallucin-   │
+│     ation where the model would produce plausible-sounding   │
+│     but numerically incorrect aggregates.                    │
+└─────────────────────────────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────────────────────────────┐
 │ [4] Interpretation                                          │
 │     Model: claude-haiku-4-5-20251001                         │
 │     Tokens: 1,500                                            │
