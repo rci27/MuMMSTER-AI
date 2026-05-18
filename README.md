@@ -59,3 +59,9 @@ Active prototype. The core query interface and the 2008-2026 master dataset are 
 ## Contact
 
 If you maintain the String Band Database or are involved with the Mummers community and would like to discuss this prototype, please open an issue on this repository.
+
+---
+
+## Claude Code Skills
+
+Claude Code skills for this system live in the artemis-skills repo: https://github.com/rci27/artemis-skills — see also `01 - ARTEMIS/skills-repo.md` in the project-artemis-obsidian vault.
