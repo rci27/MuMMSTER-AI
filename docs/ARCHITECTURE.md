@@ -37,7 +37,7 @@ ARTEMIS (Proxmox host)
 |-----|-------------------|---------------|-------|--------------------------------------------------|----------------|
 | 124 | mummster          | 192.168.1.72  | 8001  | Data pipeline + Datasette data viewer            | LAN / Tailscale |
 | 125 | mummster-query    | 192.168.1.74  | 8002  | Internal natural-language query interface         | LAN / Tailscale |
-| 126 | mummster-curation | 192.168.1.75  | 8003  | Point sheet curation tool                         | LAN / Tailscale |
+| 126 | mummster-curation | 192.168.1.75  | 8003  | Point sheet curation tool + query log Datasette   | LAN / Tailscale |
 | 127 | sbdb-frontend     | 192.168.1.76  | 3000  | Public Gatsby/React static site                   | Public (Cloudflare) |
 | 128 | sbdb-query        | 192.168.1.77  | 8004  | Public AI query API                               | Public (Cloudflare) |
 
@@ -215,6 +215,15 @@ The output goes into `sbdb_*` tables, which take precedence over the raw `parsed
 ### Why a separate tool
 
 The pipeline's vision extraction does about 80% of the work. The remaining 20% — header confusion, column-misidentification on radically different formats, OCR errors in low-quality scans — is faster to fix by a human reviewing the original PDF than by trying to make the AI extractor more clever. The curation tool is the bridge between raw extraction and trustworthy data.
+
+### Query log viewer
+
+LXC 126 also exposes a Datasette instance at `http://192.168.1.75:8003/` with two tables:
+
+- **`query_log`** — records every question submitted to the AI query interface (mummster-query on LXC 125). Browse this to see query history.
+- **`sqlite_sequence`** — SQLite internal sequence table.
+
+This is distinct from the mummster-query submission interface at `http://192.168.1.74:8002/`, which is where users *ask* questions. Port 8003 is where you *review* them.
 
 ### Source location
 Source code: [`apps/mummster-curation/`](../apps/mummster-curation/).
